@@ -53,12 +53,36 @@ router.post("/", async (req, res, next) => {
 
 router.put("/:id", async (req, res, next) => {
   try {
-    const results = await db.query(
-      `UPDATE invoices SET amt=$1 WHERE id=$2 RETURNING *`,
-      [req.body.amt, req.params.id]
-    );
-    if (results.rows.length === 0)
+    let results;
+    const { amt, paid } = req.body;
+    if (!amt) throw new ExpressError("Amount cannot be null", 400);
+    // find the invoice, if no results, throw 404 error
+    const invoiceResult = await db.query(`SELECT * FROM invoices WHERE id=$1`, [
+      req.params.id,
+    ]);
+    if (invoiceResult.rows.length === 0)
       throw new ExpressError("No results found", 404);
+    const invoice = invoiceResult.rows[0];
+    let currPaidStatus = invoice.paid;
+    let currPaidDate = invoice.paid_date;
+
+    if (!invoice.paid && paid) {
+      // paying the invoice
+      let today = new Date();
+      const dd = String(today.getDate()).padStart(2, "0");
+      const mm = String(today.getMonth() + 1).padStart(2, "0");
+      const yyyy = today.getFullYear();
+      currPaidDate = yyyy + "-" + mm + "-" + dd;
+    } else if (invoice.paid && !paid) {
+      // unpaying the invoice
+      currPaidDate = null;
+    }
+    currPaidStatus = paid;
+
+    results = await db.query(
+      `UPDATE invoices SET amt=$1, paid=$2, paid_date=$3 WHERE id=$4 RETURNING * `,
+      [amt, currPaidStatus, currPaidDate, req.params.id]
+    );
     return res.json({ invoice: results.rows[0] });
   } catch (e) {
     return next(e);
